@@ -19,6 +19,7 @@ A watcher is a cheap, read-only predicate run on a schedule (`examples/watcher_c
 - Quiet while the exact unit + InvocationID is progressing. No model turn per tick when healthy.
 - Wakes on success, failure, unexpected identity (different InvocationID, unit vanished), or stall (no byte/frame progress within a bound).
 - Success comes from a **receipt bound to the job's identity**: the job writes `unit` (`$STAGE_UNIT` from `examples/run_stage.sh`) and `invocation_id` (systemd's `$INVOCATION_ID`) into it as its last step. An unbound receipt, or one from an earlier invocation, must never count as done; an old file at the right path is exactly how a replacement job gets "accepted" by mistake.
+- Live unit evidence wins over a receipt: if the unit name now runs another invocation, or the expected invocation is loaded and failed, the receipt is not success. A collected transient unit leaves no state, so the receipt must be the job's very last step.
 - Disarms itself after a successful completion turn; never duplicate a watcher just because inspection was briefly unavailable.
 - systemd states can mislead: `active (exited)` may be a finished oneshot; `activating (start)` may be a long-running oneshot, not a hang. Neither proves acceptance; only the receipt does.
 

@@ -80,10 +80,17 @@ def maintenance_failures():
             failures.append(f'needrestart restart mode is {r.stdout.strip()!r}, expected report-only "l"')
     if shutil.which('snap'):
         listed = subprocess.run(['snap', 'list'], capture_output=True, text=True)
-        if len(listed.stdout.strip().splitlines()) > 1:      # header + at least one snap
+        if listed.returncode != 0:
+            failures.append(f'snap list failed (rc {listed.returncode}): cannot tell whether snaps auto-refresh')
+        elif len(listed.stdout.strip().splitlines()) > 1:    # header + at least one snap
             t = subprocess.run(['snap', 'refresh', '--time'], capture_output=True, text=True)
-            if not any(line.startswith('hold:') for line in t.stdout.splitlines()):
-                failures.append('snaps installed but refreshes not held (snap refresh --hold)')
+            holds = [line.split(':', 1)[1].strip() for line in t.stdout.splitlines() if line.startswith('hold:')]
+            if t.returncode != 0:
+                failures.append(f'snap refresh --time failed (rc {t.returncode})')
+            elif holds != ['forever']:
+                # Manual-install policy wants an indefinite hold (snap refresh --hold);
+                # a dated hold expires and refreshes resume on their own.
+                failures.append(f'snap refresh hold is {holds or "absent"}, expected ["forever"]')
     return failures
 
 

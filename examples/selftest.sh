@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for the example scripts on synthetic media. Needs ffmpeg/ffprobe and python3.
 # Each script runs on good input (must PASS) and on missing/mutated/invalid input (must FAIL).
-# Not covered here: run_stage.sh and --check-maintenance need a real systemd host;
-# smoke-test those by hand (see README.md).
+# Not covered here: run_stage.sh needs a real systemd host; smoke-test it by hand
+# (see README.md). Watcher and maintenance checks run against fake host tools.
 # Uses a private temp dir and removes it on exit. Touches nothing else.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -86,11 +86,17 @@ expect pass "20 concurrent adds keep all entries" concurrent_distinct
 expect pass "concurrent duplicate: one winner"    concurrent_same
 
 echo "== watcher_check"
-# Fake systemctl so BUSY/IDENTITY/STALL are testable without real units.
-printf '#!/bin/sh\ncase "$*" in *ActiveState*) echo "$FAKE_STATE";; *InvocationID*) echo "$FAKE_INV";; esac\n' > fake_systemctl
+# Fake systemctl so live states are testable without real units.
+# FAKE_RC!=0 simulates a failed query; a collected unit looks like inactive/success/no invocation.
+cat > fake_systemctl <<'SH'
+#!/bin/sh
+[ "${FAKE_RC:-0}" = 0 ] || exit "$FAKE_RC"
+printf 'ActiveState=%s\nResult=%s\nInvocationID=%s\n' "$FAKE_STATE" "${FAKE_RESULT:-success}" "$FAKE_INV"
+SH
 chmod +x fake_systemctl
-w() { # expected_rc receipt state inv progress
-  SYSTEMCTL=./fake_systemctl FAKE_STATE=$3 FAKE_INV=$4 "$here/watcher_check.sh" job.service INV-NEW "$2" "$5" 60
+w() { # expected_rc receipt state inv progress [result] [query_rc]
+  SYSTEMCTL=./fake_systemctl FAKE_STATE=$3 FAKE_INV=$4 FAKE_RESULT=${6:-success} FAKE_RC=${7:-0} \
+    "$here/watcher_check.sh" job.service INV-NEW "$2" "$5" 60
   [[ $? == "$1" ]]
 }
 echo '{"ok": true, "unit": "job.service", "invocation_id": "INV-NEW"}' > ok.json
@@ -100,18 +106,55 @@ echo '{"ok": true}' > unbound.json
 echo '{"ok": true, "unit": "other.service", "invocation_id": "INV-NEW"}' > otherunit.json
 echo 'not json' > garbage.json
 touch fresh; touch -d '-10 minutes' stale
-expect pass "bound ok receipt -> DONE"            w 10 ok.json inactive "" fresh
-expect pass "bound failed receipt -> FAILED"      w 11 bad.json inactive "" fresh
-expect pass "old invocation receipt -> IDENTITY"  w 12 old.json inactive "" fresh
-expect pass "unbound receipt -> IDENTITY"         w 12 unbound.json inactive "" fresh
-expect pass "other unit's receipt -> IDENTITY"    w 12 otherunit.json inactive "" fresh
-expect pass "unreadable receipt -> IDENTITY"      w 12 garbage.json inactive "" fresh
-expect pass "running, fresh progress -> BUSY"     w 0 none.json active INV-NEW fresh
-expect pass "running, other invocation -> IDENTITY" w 12 none.json active INV-OTHER fresh
-expect pass "running, stale progress -> STALL"    w 13 none.json active INV-NEW stale
-expect pass "running, no progress file -> STALL"  w 13 none.json active INV-NEW missing
-expect pass "gone without receipt -> FAILED"      w 11 none.json inactive "" fresh
-expect pass "failed unit without receipt -> FAILED" w 11 none.json failed INV-NEW fresh
+# receipt cases, unit collected
+expect pass "collected + bound ok receipt -> DONE"      w 10 ok.json inactive "" fresh
+expect pass "exited success + bound receipt -> DONE"    w 10 ok.json inactive INV-NEW fresh
+expect pass "bound failed receipt -> FAILED"            w 11 bad.json inactive "" fresh
+expect pass "old invocation receipt -> IDENTITY"        w 12 old.json inactive "" fresh
+expect pass "unbound receipt -> IDENTITY"               w 12 unbound.json inactive "" fresh
+expect pass "other unit's receipt -> IDENTITY"          w 12 otherunit.json inactive "" fresh
+expect pass "unreadable receipt -> IDENTITY"            w 12 garbage.json inactive "" fresh
+# live evidence contradicting a bound ok receipt
+expect pass "ok receipt + unit failed -> FAILED"        w 11 ok.json failed INV-NEW fresh failed
+expect pass "ok receipt + exit-code result -> FAILED"   w 11 ok.json inactive INV-NEW fresh exit-code
+expect pass "ok receipt + other live invocation -> IDENTITY" w 12 ok.json active INV-OTHER fresh
+expect pass "ok receipt + still running -> BUSY"        w 0 ok.json active INV-NEW stale
+expect pass "ok receipt + systemctl error -> UNKNOWN"   w 14 ok.json "" "" fresh success 1
+# no receipt
+expect pass "running, fresh progress -> BUSY"           w 0 none.json active INV-NEW fresh
+expect pass "running, other invocation -> IDENTITY"     w 12 none.json active INV-OTHER fresh
+expect pass "running, stale progress -> STALL"          w 13 none.json active INV-NEW stale
+expect pass "running, no progress file -> STALL"        w 13 none.json active INV-NEW missing
+expect pass "gone without receipt -> FAILED"            w 11 none.json inactive "" fresh
+expect pass "failed unit without receipt -> FAILED"     w 11 none.json failed INV-NEW fresh failed
+
+echo "== disk_guard --check-maintenance (fake host tools)"
+mkdir -p fakebin
+printf '#!/bin/sh\necho "${FAKE_APT:-masked}"\n' > fakebin/systemctl
+printf '#!/bin/sh\nexit 0\n' > fakebin/needrestart
+printf '#!/bin/sh\necho "${FAKE_NR:-l}"\n' > fakebin/perl
+cat > fakebin/snap <<'SH'
+#!/bin/sh
+case "$1 $FAKE_SNAP" in
+  "list none")      echo "No snaps are installed yet." >&2; exit 0 ;;
+  "list list-error") echo "error: cannot communicate with server" >&2; exit 1 ;;
+  list*)            printf 'Name Version Rev Tracking Publisher Notes\ncore22 1 1 latest/stable canonical base\n' ;;
+  "refresh held")   printf 'timer: 00:00~24:00/4\nhold: forever\n' ;;
+  "refresh unheld") printf 'timer: 00:00~24:00/4\n' ;;
+  "refresh expired") printf 'timer: 00:00~24:00/4\nhold: 2020-01-01T00:00:00Z\n' ;;
+  "refresh time-error") exit 1 ;;
+esac
+SH
+chmod +x fakebin/*
+m() { PATH="$tmp/fakebin:$PATH" FAKE_SNAP=$1 FAKE_APT=${2:-masked} FAKE_NR=${3:-l} "$here/disk_guard.py" --check-maintenance; }
+expect pass "apt masked, report-only, snap held"   m held
+expect pass "no snaps installed"                   m none
+expect fail "snaps installed, no hold"             m unheld
+expect fail "dated hold instead of forever"        m expired
+expect fail "snap list fails"                      m list-error
+expect fail "snap refresh --time fails"            m time-error
+expect fail "apt upgrade not masked"               m held enabled
+expect fail "needrestart restarts automatically"   m held masked a
 
 echo "== kodi_scan_if_idle (fake Kodi)"
 cat > fake_kodi.py <<'PY'
