@@ -1,0 +1,6 @@
+__pycache__/
+*.mkv
+*.m2ts
+*.iso
+*.log
+receipt*.json
