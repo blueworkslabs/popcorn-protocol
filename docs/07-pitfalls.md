@@ -52,8 +52,6 @@ Each entry: what happened, what fixed it, and how far the lesson reaches. A fix 
 
 ## Operations
 
-**Root-owned leftovers broke the backup.** A cleanup run with `sudo` left test databases owned by root, and the nightly backup running as the service user failed on them for days. *Fix:* run tasks as the owning user, or `chown` what you create. Have the backup verify every source it should include, and alert on staleness.
-
 **Stale watcher payloads.** A watcher's stored description still named the predecessor unit after a continuation launched. Follow the current checker and checkpoint, and update the stale metadata you own.
 
 **Another notifier is rarely the answer.** We added an update notifier and then found the morning health check already covered OS updates for one host. We extended that check to both hosts instead.

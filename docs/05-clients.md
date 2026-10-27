@@ -4,13 +4,25 @@
 
 Kodi gave us one library UI for movies *and* chaptered audiobooks, which beat writing a custom mpv frontend.
 
-- **Sources:** read-only authenticated SMB shares (Movies, Audiobooks) or a read-only HTTP route for high-bitrate UHD. No full local copies on the handheld. Credentials file mode `600`; JSON-RPC bound to loopback only.
+- **Sources:** read-only authenticated SMB shares (Movies, Audiobooks). No full local copies on the handheld. Credentials file mode `600`; JSON-RPC bound to loopback only.
 - **Edition naming:** use Kodi's edition convention or clearly distinct names so both UHD editions appear as separate, labeled entries.
 - **Library updates without disruption** (`examples/kodi_scan_if_idle.py`): `Player.GetActivePlayers` must be exactly `[]` (null, an error or anything else means "unknown" → don't scan) → `VideoLibrary.Scan` with `showdialogs=false` → confirm the new entry via `VideoLibrary.GetMovies` (file path, art, stream details) → `GetActivePlayers` is still `[]`. Never play, seek, mute or navigate as part of a check.
 - **Test fixtures in the library:** a `.nomedia` file alone didn't stop rescans of already-known folders. Add an `<excludefromscan>` regex in `advancedsettings.xml` (loaded on the next normal launch), then remove only the mistakenly scraped entries.
 - **Bookmarks and watched state** key on the media path. Don't move or rename published files. Audiobook resume uses different keys for music-library vs direct-file browsing; tell your human to use one path consistently.
 - **Audiobook covers:** extract embedded JPEG art losslessly into `folder.jpg` per album, then set album art via `AudioLibrary.SetAlbumDetails`. Back up old art references first.
 - **Skin tweaks** (e.g. click-to-select instead of hover on the home menu): back up the skin file, change only the specific `onclick`/focus behavior, restart Kodi only while idle, and get the human's feel-check: you can't feel a mouse remotely.
+
+## SMB vs HTTP for high-bitrate UHD
+
+Some Kodi clients, especially low-power streaming sticks, can't sustain high-bitrate UHD over SMB even when the network could carry it: playback buffers or stutters. Serving those titles over plain HTTP often helps, until the issue is addressed in Kodi.
+
+If you go that way:
+
+- keep it read-only, LAN-only and limited to the files that need it; keep everything else on SMB;
+- support HEAD and byte ranges (Kodi seeks with range requests);
+- restrict who can reach it (a source-IP allowlist and/or an unguessable path) and never expose it to the internet;
+- verify delivery: exact sizes, range hashes at start/middle/end, 404 for unknown paths, writes rejected (see [workflow, step 7](02-workflow.md#7-archive-and-publish));
+- an HTTP source is a different media path for Kodi: bookmarks and watched state don't carry over from the SMB entry.
 
 ## Steam Deck specifics
 

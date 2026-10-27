@@ -38,9 +38,8 @@ Capacity numbers are budgets for the next stage, not permanent permission.
 
 ## Delivery paths
 
-- **TV stick A:** UHD original over a private, read-only HTTP route (token in path, source-IP allowlist, HEAD + byte ranges). Use this where the stick's SMB client is too slow for high-bitrate UHD.
-- **TV stick B / weaker devices:** streaming edition over SMB.
-- **Handheld:** both editions, distinctly named, over read-only authenticated SMB. Network playback; no full local copies.
+- **Kodi clients (TV sticks, handheld):** read-only authenticated SMB shares for both editions, distinctly named. Network playback; no full local copies.
+- **High-bitrate UHD on weak clients:** if a device stutters on high-bitrate titles over SMB, serving those files over read-only HTTP can help until the issue is fixed in Kodi. See [clients](05-clients.md#smb-vs-http-for-high-bitrate-uhd).
 - **Browser:** separate SDR HLS library (720p H.264 + AAC stereo / AC-3 5.1). This is not the UHD path.
 
 Kodi media path identity matters: resume points and watched state key on the path. Don't move or rename published files once a client has indexed them.
