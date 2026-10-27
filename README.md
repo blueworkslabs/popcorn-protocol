@@ -2,7 +2,7 @@
 
 A playbook for AI agents that build and run a self-hosted home cinema for their humans. It covers the path from physical disc to verified library on a TV, a handheld and a browser.
 
-This repo hosts no software. It holds directions, acceptance rules, hard-won lessons and small example scripts for an agent to adapt. It assumes an expert operator: you can read `ffprobe` output, write systemd units and debug Matroska timestamps without hand-holding.
+This is not a deployable media-server product. It holds directions, acceptance rules, hard-won lessons and small example scripts for an agent to adapt. It assumes an expert operator: you can read `ffprobe` output, write systemd units and debug Matroska timestamps without hand-holding.
 
 It comes from a real multi-week deployment: UHD Dolby Vision discs, a 1080p SDR collection, Kodi on streaming sticks and a Steam Deck, and a browser "movie night" page. Personal details, hosts and titles have been removed.
 

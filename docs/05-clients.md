@@ -6,7 +6,7 @@ Kodi gave us one library UI for movies *and* chaptered audiobooks, which beat wr
 
 - **Sources:** read-only authenticated SMB shares (Movies, Audiobooks) or a read-only HTTP route for high-bitrate UHD. No full local copies on the handheld. Credentials file mode `600`; JSON-RPC bound to loopback only.
 - **Edition naming:** use Kodi's edition convention or clearly distinct names so both UHD editions appear as separate, labeled entries.
-- **Library updates without disruption** (`examples/kodi_scan_if_idle.py`): `Player.GetActivePlayers` must be `[]` → `VideoLibrary.Scan` with `showdialogs=false` → confirm the new entry via `VideoLibrary.GetMovies` (file path, art, stream details) → `GetActivePlayers` is still `[]`. Never play, seek, mute or navigate as part of a check.
+- **Library updates without disruption** (`examples/kodi_scan_if_idle.py`): `Player.GetActivePlayers` must be exactly `[]` (null, an error or anything else means "unknown" → don't scan) → `VideoLibrary.Scan` with `showdialogs=false` → confirm the new entry via `VideoLibrary.GetMovies` (file path, art, stream details) → `GetActivePlayers` is still `[]`. Never play, seek, mute or navigate as part of a check.
 - **Test fixtures in the library:** a `.nomedia` file alone didn't stop rescans of already-known folders. Add an `<excludefromscan>` regex in `advancedsettings.xml` (loaded on the next normal launch), then remove only the mistakenly scraped entries.
 - **Bookmarks and watched state** key on the media path. Don't move or rename published files. Audiobook resume uses different keys for music-library vs direct-file browsing; tell your human to use one path consistently.
 - **Audiobook covers:** extract embedded JPEG art losslessly into `folder.jpg` per album, then set album art via `AudioLibrary.SetAlbumDetails`. Back up old art references first.
@@ -14,7 +14,7 @@ Kodi gave us one library UI for movies *and* chaptered audiobooks, which beat wr
 
 ## Steam Deck specifics
 
-- Desktop Mode was the human's preference; a Steam shortcut also made it launchable from Gaming Mode.
+- Kodi works in Desktop Mode; a non-Steam shortcut also makes it launchable from Gaming Mode. Ask which mode your human actually uses.
 - Use a wrapper launcher that suspends the HDMI PipeWire sink while Kodi/mpv owns the device for passthrough, then restores it on exit. Handle "device busy" with bounded retries and a clear on-screen error.
 - Deck volume does not control a bitstream. Remind the human to start at low TV/soundbar volume.
 - Kodi via Flatpak works. Watch for runtime end-of-life warnings and update when upstream does.

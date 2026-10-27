@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for the example scripts on synthetic media. Needs ffmpeg/ffprobe and python3.
-# Every check runs on good input (must PASS) and on missing/mutated input (must FAIL).
+# Each script runs on good input (must PASS) and on missing/mutated/invalid input (must FAIL).
+# Not covered here: run_stage.sh and --check-maintenance need a real systemd host;
+# smoke-test those by hand (see README.md).
 # Uses a private temp dir and removes it on exit. Touches nothing else.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
@@ -43,11 +45,20 @@ expect fail "shifted timestamps"                  "$here/packet_compare.py" ref.
 
 echo "== disk_guard"
 mkdir -p a b capdir; head -c 1048576 /dev/zero > capdir/blob
+free=$(python3 -c 'import shutil;print(shutil.disk_usage(".").free/1024**3)')
+part=$(python3 -c "print($free*0.6)")   # one part fits, two parts on one filesystem don't
 expect pass "small need, small floor"             "$here/disk_guard.py" --need a:0.001 --floor a:0.001
+expect pass "one 60% need fits"                   "$here/disk_guard.py" --need a:$part --floor a:0
+expect fail "two 60% needs on one fs are summed"  "$here/disk_guard.py" --need a:$part --need b:$part --floor a:0
 expect fail "floor above free space"              "$here/disk_guard.py" --need a:0.001 --floor a:1000000
-expect fail "same filesystem needs are summed"    "$here/disk_guard.py" --need a:600000 --need b:600000 --floor a:0 \
-                                                    --floor b:0
+expect fail "need without a floor"                "$here/disk_guard.py" --need a:0.001
+expect fail "no checks requested"                 "$here/disk_guard.py"
+expect fail "NaN need"                            "$here/disk_guard.py" --need a:nan --floor a:1000000
+expect fail "negative need"                       "$here/disk_guard.py" --need a:-1000000 --floor a:1000000
+expect fail "missing path"                        "$here/disk_guard.py" --need nope:1 --floor nope:1
+expect pass "cap with room"                       "$here/disk_guard.py" --cap capdir:1:0.001
 expect fail "cap exceeded"                        "$here/disk_guard.py" --cap capdir:0.0005:0
+expect fail "cap on missing dir"                  "$here/disk_guard.py" --cap nope:1:0
 
 echo "== atomic_publish"
 mkdir -p lib
@@ -59,22 +70,64 @@ expect pass "published file identical, read-only" bash -c 'cmp ref.mkv lib/Examp
 echo '{"id":"example","title":"Example"}' > entry.json
 expect pass "catalog add"                         "$here/atomic_publish.py" catalog-add catalog.json entry.json
 expect fail "catalog duplicate id"                "$here/atomic_publish.py" catalog-add catalog.json entry.json
+concurrent_distinct() {
+  rm -f cc.json cc.json.lock
+  for i in $(seq 20); do echo "{\"id\":\"m$i\"}" > e$i.json; done
+  for i in $(seq 20); do "$here/atomic_publish.py" catalog-add cc.json e$i.json >/dev/null & done; wait
+  python3 -c 'import json;n=len(json.load(open("cc.json"))["movies"]);print(n);exit(n!=20)'
+}
+concurrent_same() {
+  rm -f cs.json cs.json.lock; ok=0
+  for i in $(seq 10); do ("$here/atomic_publish.py" catalog-add cs.json entry.json >/dev/null && touch won.$i) & done; wait
+  n=$(ls won.* 2>/dev/null | wc -l); rm -f won.*
+  python3 -c "import json;m=len(json.load(open('cs.json'))['movies']);print($n,m);exit(not($n==1 and m==1))"
+}
+expect pass "20 concurrent adds keep all entries" concurrent_distinct
+expect pass "concurrent duplicate: one winner"    concurrent_same
 
 echo "== watcher_check"
-echo '{"ok": true}' > ok.json; echo '{"ok": false}' > bad.json; touch progress
-expect pass "ok receipt -> DONE"                  bash -c "\"$here/watcher_check.sh\" none-unit x ok.json progress 60; [[ \$? == 10 ]]"
-expect pass "failed receipt -> FAILED"            bash -c "\"$here/watcher_check.sh\" none-unit x bad.json progress 60; [[ \$? == 11 ]]"
-expect pass "no receipt, unit gone -> FAILED"     bash -c "\"$here/watcher_check.sh\" popcorn-selftest-nonexistent x missing.json progress 60; [[ \$? == 11 ]]"
+# Fake systemctl so BUSY/IDENTITY/STALL are testable without real units.
+printf '#!/bin/sh\ncase "$*" in *ActiveState*) echo "$FAKE_STATE";; *InvocationID*) echo "$FAKE_INV";; esac\n' > fake_systemctl
+chmod +x fake_systemctl
+w() { # expected_rc receipt state inv progress
+  SYSTEMCTL=./fake_systemctl FAKE_STATE=$3 FAKE_INV=$4 "$here/watcher_check.sh" job.service INV-NEW "$2" "$5" 60
+  [[ $? == "$1" ]]
+}
+echo '{"ok": true, "unit": "job.service", "invocation_id": "INV-NEW"}' > ok.json
+echo '{"ok": false, "unit": "job.service", "invocation_id": "INV-NEW"}' > bad.json
+echo '{"ok": true, "unit": "job.service", "invocation_id": "INV-OLD"}' > old.json
+echo '{"ok": true}' > unbound.json
+echo '{"ok": true, "unit": "other.service", "invocation_id": "INV-NEW"}' > otherunit.json
+echo 'not json' > garbage.json
+touch fresh; touch -d '-10 minutes' stale
+expect pass "bound ok receipt -> DONE"            w 10 ok.json inactive "" fresh
+expect pass "bound failed receipt -> FAILED"      w 11 bad.json inactive "" fresh
+expect pass "old invocation receipt -> IDENTITY"  w 12 old.json inactive "" fresh
+expect pass "unbound receipt -> IDENTITY"         w 12 unbound.json inactive "" fresh
+expect pass "other unit's receipt -> IDENTITY"    w 12 otherunit.json inactive "" fresh
+expect pass "unreadable receipt -> IDENTITY"      w 12 garbage.json inactive "" fresh
+expect pass "running, fresh progress -> BUSY"     w 0 none.json active INV-NEW fresh
+expect pass "running, other invocation -> IDENTITY" w 12 none.json active INV-OTHER fresh
+expect pass "running, stale progress -> STALL"    w 13 none.json active INV-NEW stale
+expect pass "running, no progress file -> STALL"  w 13 none.json active INV-NEW missing
+expect pass "gone without receipt -> FAILED"      w 11 none.json inactive "" fresh
+expect pass "failed unit without receipt -> FAILED" w 11 none.json failed INV-NEW fresh
 
 echo "== kodi_scan_if_idle (fake Kodi)"
 cat > fake_kodi.py <<'PY'
-import json, socket, sys
-playing = sys.argv[2] == 'playing'
+import json, socket, sys, time
+mode = sys.argv[2]
 movie = 'smb://media/Movies/Example (2020)/Example (2020).mkv'
 s = socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.bind(('127.0.0.1', 0)); s.listen(1)
 open(sys.argv[1], 'w').write(str(s.getsockname()[1]))
-c, _ = s.accept(); dec = json.JSONDecoder(); buf = ''; scanned = False
+c, _ = s.accept(); dec = json.JSONDecoder(); buf = ''; scanned = False; polls = 0
+def send(obj):
+    data = json.dumps(obj, ensure_ascii=False).encode()
+    cut = data.find('ä'.encode()) + 1          # inside the 2-byte UTF-8 sequence
+    if mode == 'split' and cut > 0:            # two writes with a pause: two client reads
+        c.sendall(data[:cut]); time.sleep(0.3); c.sendall(data[cut:])
+    else: c.sendall(data)
 while True:
     data = c.recv(65536)
     if not data: break
@@ -83,24 +136,33 @@ while True:
         try: req, end = dec.raw_decode(buf.lstrip())
         except json.JSONDecodeError: break
         buf = buf.lstrip()[end:]; m = req['method']
-        if m == 'Player.GetActivePlayers': res = [{'playerid': 1, 'type': 'video'}] if playing else []
-        elif m == 'VideoLibrary.Scan': scanned = True; res = 'OK'
+        if m == 'Player.GetActivePlayers':
+            polls += 1
+            if mode == 'playing': res = [{'playerid': 1, 'type': 'video'}]
+            elif mode == 'null' or (mode == 'null-after' and polls > 1): res = None
+            else: res = []
+        elif m == 'VideoLibrary.Scan':
+            scanned = True; res = 'OK'; open('scanned', 'w').close()
         elif m == 'VideoLibrary.GetMovies':
-            res = {'movies': [{'movieid': 1, 'file': movie, 'label': 'Example'}] if scanned else []}
+            res = {'movies': [{'movieid': 1, 'file': movie, 'label': 'Exämple – Ünïcode'}] if scanned else []}
         else: res = None
-        c.sendall(json.dumps({'jsonrpc': '2.0', 'id': req['id'], 'result': res}).encode())
+        send({'jsonrpc': '2.0', 'id': req['id'], 'result': res})
         if m == 'VideoLibrary.Scan':
-            c.sendall(json.dumps({'jsonrpc': '2.0', 'method': 'VideoLibrary.OnScanFinished', 'params': {}}).encode())
+            send({'jsonrpc': '2.0', 'method': 'VideoLibrary.OnScanFinished', 'params': {}})
 PY
 kodi_case() { # mode expect_file
-  rm -f port; python3 fake_kodi.py port "$1" &
+  rm -f port scanned; python3 fake_kodi.py port "$1" &
   for _ in $(seq 50); do [[ -s port ]] && break; sleep 0.1; done
   "$here/kodi_scan_if_idle.py" --port "$(cat port)" --timeout 10 --directory smb://media/Movies/ --expect-file "$2"
   local rc=$?; wait; return $rc
 }
+no_scan() { kodi_case "$@"; local rc=$?; [[ ! -e scanned ]] || { echo "scan was triggered"; return 0; }; return $rc; }
 movie='smb://media/Movies/Example (2020)/Example (2020).mkv'
 expect pass "idle -> scan and find entry"         kodi_case idle "$movie"
-expect fail "playing -> refuses to scan"          kodi_case playing "$movie"
+expect pass "multibyte title split across reads"  kodi_case split "$movie"
+expect fail "playing -> refuses, no scan"         no_scan playing "$movie"
+expect fail "null player state -> refuses, no scan" no_scan null "$movie"
+expect fail "null state after scan -> not ok"     kodi_case null-after "$movie"
 expect fail "entry not found after scan"          kodi_case idle "smb://media/Movies/Missing.mkv"
 
 echo

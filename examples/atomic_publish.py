@@ -11,12 +11,15 @@
 
   catalog-add CATALOG.json ENTRY.json
       Add one entry (must have a unique "id") to {"movies": [...]}, refusing a
-      duplicate id, then atomically replace the catalog (temp + fsync + rename).
-      Always edits the *current* catalog; never write back an old snapshot.
+      duplicate id, then atomically replace the catalog (temp + fsync + rename
+      + directory fsync). The whole read-check-append-replace runs under an
+      exclusive lock on CATALOG.json.lock, so concurrent writers serialize
+      instead of losing each other's entries. Every writer must use the same
+      lock. Always edits the *current* catalog; never write back an old snapshot.
 
 Prints a JSON receipt. Exit 1 on any mismatch or conflict.
 """
-import hashlib, json, os, pathlib, shutil, sys, tempfile
+import fcntl, hashlib, json, os, pathlib, shutil, sys, tempfile
 
 CHUNK = 8 * 1024 * 1024
 
@@ -72,6 +75,12 @@ def publish(source, dest, expected=None):
 def catalog_add(catalog, entry_path):
     catalog = pathlib.Path(catalog)
     entry = json.loads(pathlib.Path(entry_path).read_text())
+    with open(str(catalog) + '.lock', 'a') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        return _catalog_add_locked(catalog, entry)
+
+
+def _catalog_add_locked(catalog, entry):
     current = json.loads(catalog.read_text()) if catalog.exists() else {'movies': []}
     if not entry.get('id'):
         raise ValueError('entry needs an id')
@@ -87,6 +96,9 @@ def catalog_add(catalog, entry_path):
             os.fsync(f.fileno())
         os.chmod(tmp, 0o644)
         os.replace(tmp, catalog)
+        dir_fd = os.open(catalog.parent, os.O_RDONLY)
+        os.fsync(dir_fd)
+        os.close(dir_fd)
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)

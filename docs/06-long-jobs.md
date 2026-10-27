@@ -7,7 +7,7 @@ A UHD title can take most of a day: extraction, fixture, encode, two full-film v
 - One finite **systemd unit** per stage or per pipeline generation (`systemd-run` transient or a templated unit). See `examples/run_stage.sh`.
 - Limits: `RuntimeMaxSec`, `CPUQuota`, `MemoryMax`, `IOWeight`/`Nice`, a sleep inhibitor (`systemd-inhibit --what=sleep`).
 - **Fresh-only outputs:** the worker refuses an existing destination. A failed fresh-only job is *not* resumed by restarting its unit or deleting its markers. Reconcile what survived and launch a separately identified continuation.
-- **Frozen tools:** copy the scripts a run uses into its stage directory, record their SHA-256 and external tool versions (`ffmpeg -version`, `mkvmerge -V`, `dovi_tool --version`, ripper version). Never edit a running job's files.
+- **Frozen tools:** copy the scripts a run uses into their own read-only tool generation (separate from the fresh stage dir), record their SHA-256 and external tool versions (`ffmpeg -version`, `mkvmerge -V`, `dovi_tool --version`, ripper version). Never edit a running job's files.
 - **Locks:** a per-resource `flock` (optical drive, media worker, archive writes). Never bypass a held lock or queue owner.
 - Prefer the unit's own graceful stop over process-name kills (`pkill -f` can match your own shell). Kill by recorded PID/cgroup only.
 - Run media work at lower priority than playback: a running movie must never stutter because of a verify pass.
@@ -18,6 +18,7 @@ A watcher is a cheap, read-only predicate run on a schedule (`examples/watcher_c
 
 - Quiet while the exact unit + InvocationID is progressing. No model turn per tick when healthy.
 - Wakes on success, failure, unexpected identity (different InvocationID, unit vanished), or stall (no byte/frame progress within a bound).
+- Success comes from a **receipt bound to the job's identity**: the job writes `unit` (`$STAGE_UNIT` from `examples/run_stage.sh`) and `invocation_id` (systemd's `$INVOCATION_ID`) into it as its last step. An unbound receipt, or one from an earlier invocation, must never count as done; an old file at the right path is exactly how a replacement job gets "accepted" by mistake.
 - Disarms itself after a successful completion turn; never duplicate a watcher just because inspection was briefly unavailable.
 - systemd states can mislead: `active (exited)` may be a finished oneshot; `activating (start)` may be a long-running oneshot, not a hang. Neither proves acceptance; only the receipt does.
 
@@ -65,7 +66,7 @@ We lost a multi-hour extraction because the distro's unattended upgrade installe
 Recommended for a media host:
 
 - Disable automatic installs (mask `apt-daily-upgrade.timer`/`.service`; hold snap refreshes if snaps are present), keep metadata refresh on.
-- Make `needrestart` report-only: `$nrconf{restart} = 'l';` in `/etc/needrestart/conf.d/` (`examples/needrestart-report-only.conf`).
+- Make `needrestart` report-only: `$nrconf{restart} = 'l';` in `/etc/needrestart/conf.d/` (`examples/needrestart-report-only.conf`). This stops needrestart's own restarts only; a package's maintainer scripts or an admin can still restart a service, which is one more reason to install updates only when nothing is running.
 - Fold "updates available, security highlighted" into an existing daily health report instead of adding another notifier.
 - Install updates manually, with the human's OK, at a time no job or movie is running.
 - Assert this policy in every worker's preflight (see `examples/disk_guard.py --check-maintenance`).

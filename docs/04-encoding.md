@@ -4,7 +4,7 @@ These are the profiles that passed our gates and suited our clients. Treat them 
 
 ## UHD original edition
 
-Remux only. Native HEVC base layer plus the Dolby Vision enhancement layer/RPU (profile 7 discs carry BL+EL), every intended source audio track bit-exact (TrueHD/Atmos, DTS-HD MA, AC-3), intended subtitles (PGS), chapters. No re-encode, no audio conversion.
+Remux only. Native HEVC base layer plus the Dolby Vision enhancement layer/RPU (profile 7 discs carry BL+EL; the EL is either MEL, metadata-only, or FEL, which carries real residual image data), every intended source audio track bit-exact (TrueHD/Atmos, DTS-HD MA, AC-3), intended subtitles (PGS), chapters. No re-encode, no audio conversion.
 
 ## UHD streaming edition (1080p, DV 8.1 + HDR10)
 
@@ -16,9 +16,10 @@ For TV sticks and the handheld. Measured baseline:
 - Timing: `-fps_mode passthrough` with the source time base (e.g. `-enc_time_base:v 1001:24000`) so no frames are dropped or invented.
 - Dolby Vision, with [dovi_tool](https://github.com/quietvoid/dovi_tool):
   1. `extract-rpu` from the original; `info -s` to record profile and frame count (must equal the video frame count).
-  2. Convert to profile 8.1 with the editor (`mode: 2`). Scale L5 active-area offsets for 2160→1080: `ceil(source/2)`, no image crop. Verify the edit's frame range covers exactly `0..N-1`.
+  2. Convert to profile 8.1 with the editor (`mode: 2`). Record whether the source EL was MEL or FEL (`dovi_tool info`). An 8.1 BL+RPU derivative drops the EL: from a MEL source that loses nothing visible, from a FEL source it does not preserve or reconstruct the FEL residual image. That material lives only in the untouched original. Scale L5 active-area offsets for 2160→1080: `ceil(source/2)`, no image crop. Verify the edit's frame range covers exactly `0..N-1`.
   3. Encode the HEVC elementary stream, then `inject-rpu`.
-  4. Verify: DV profile 8, RPU present, no EL, BL compatibility id 1, RPU frame count = N, re-extracted RPU equals the injected one.
+  4. Pin the dovi_tool version you validated this recipe with, and test the actual source + client combination.
+  5. Verify: DV profile 8, RPU present, no EL, BL compatibility id 1, RPU frame count = N, re-extracted RPU equals the injected one.
 - Mux with `mkvmerge`: the new video plus audio/subtitles/chapters **copied from the original**. Copied tracks must still pass the exact packet comparison. Pass explicit per-track timestamp files where mkvmerge would otherwise re-quantize (see [pitfalls](07-pitfalls.md)).
 
 ## 1080p Blu-ray (SDR) library edition
