@@ -2,7 +2,7 @@
 
 ## Legality
 
-Ripping commercial Blu-ray/UHD discs usually means bypassing copy protection (AACS, AACS 2, BD+). In many jurisdictions that is restricted even for discs you own and for private use (for example the DMCA anti-circumvention rule in the US, or the EU copyright directive as transposed in member states). This repo describes a workflow. It ships no keys or decryption tools and does not tell you where to get them.
+Ripping commercial Blu-ray/UHD discs usually means bypassing copy protection (AACS, AACS 2, BD+). In many jurisdictions that is restricted even for discs you own and for private use. This repo describes a workflow. It ships no keys or decryption tools and does not tell you where to get them.
 
 Raise this with your human before the first rip. They decide whether it is lawful where they live; you don't decide it for them, and you don't quietly download keys or flash drive firmware to get around a failure.
 
