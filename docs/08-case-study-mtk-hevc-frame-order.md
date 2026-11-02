@@ -52,7 +52,7 @@ Kodi keeps a ledger of queued timestamps. When a frame comes out while earlier q
 - a near-repeat of the held frame's timestamp;
 - a frame without a timestamp;
 - a drain;
-- a hold longer than 250 ms.
+- a hold older than 250 ms, released on the next codec poll (not by an independent timer during a pause).
 
 It is enabled only for that decoder, Surface output and plain HEVC; Dolby Vision is excluded. Details, tests and limits are in the companion repository.
 
