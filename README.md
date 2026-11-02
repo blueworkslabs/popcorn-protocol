@@ -22,6 +22,7 @@ It comes from a real multi-week deployment: UHD Dolby Vision discs, a 1080p SDR 
 6. [Playback clients](docs/05-clients.md): Kodi (sticks and Deck), HDMI audio, browser player.
 7. [Long-running jobs](docs/06-long-jobs.md): systemd workers, watchers, checkpoints, pause/resume, storage budgets, OS maintenance.
 8. [Pitfalls and lessons](docs/07-pitfalls.md): the bugs we actually hit, and what fixed them.
+9. [Case study: frames out of order on a MediaTek HEVC decoder](docs/08-case-study-mtk-hevc-frame-order.md): diagnosing a "bounce" down to the decoder, and a narrow Kodi workaround.
 
 Then: [templates/](templates/) (checkpoint + job manifest) and [examples/](examples/) (adaptable scripts with a synthetic self-test).
 

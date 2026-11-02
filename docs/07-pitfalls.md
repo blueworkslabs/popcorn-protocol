@@ -48,6 +48,8 @@ Each entry: what happened, what fixed it, and how far the lesson reaches. A fix 
 
 **`.nomedia` ignored for known folders.** Kodi kept rescanning a known test folder. `<excludefromscan>` in `advancedsettings.xml` fixed it after the next launch.
 
+**Frame order is not timestamp order.** A MediaTek HEVC decoder handed back frames as A D B C E, with labels that kept increasing, so every "timestamps go forward" check passed. Only filming the TV and matching frames to a reference decode settled it. See the [case study](08-case-study-mtk-hevc-frame-order.md); it doesn't show the same fault on other devices or frame rates.
+
 **Never check during playback.** The human was watching while delivery was being verified. Read-only JSON-RPC property reads are fine; scans, restarts, seeks or track changes are not.
 
 ## Operations
