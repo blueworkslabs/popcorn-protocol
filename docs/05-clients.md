@@ -10,6 +10,7 @@ Kodi gave us one library UI for movies *and* chaptered audiobooks, which beat wr
 - **Test fixtures in the library:** a `.nomedia` file alone didn't stop rescans of already-known folders. Add an `<excludefromscan>` regex in `advancedsettings.xml` (loaded on the next normal launch), then remove only the mistakenly scraped entries.
 - **Bookmarks and watched state** key on the media path. Don't move or rename published files. Audiobook resume uses different keys for music-library vs direct-file browsing; tell your human to use one path consistently.
 - **Audiobook covers:** extract embedded JPEG art losslessly into `folder.jpg` per album, then set album art via `AudioLibrary.SetAlbumDetails`. Back up old art references first.
+- **Frames jumping back and forth in UHD HEVC on a MediaTek stick** (not buffering, not every replay): see the [case study](08-case-study-mtk-hevc-frame-order.md). The decoder can hand frames back out of order with timestamps that still look fine.
 - **Skin tweaks** (e.g. click-to-select instead of hover on the home menu): back up the skin file, change only the specific `onclick`/focus behavior, restart Kodi only while idle, and get the human's feel-check: you can't feel a mouse remotely.
 
 ## SMB vs HTTP for high-bitrate UHD
