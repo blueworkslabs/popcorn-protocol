@@ -65,6 +65,17 @@ The first candidate passed its own 42 tests and was still wrong in three ways. E
 - **"Unknown timestamp" is not identity.** Any never-queued label above the held frame was taken as a late frame. So were a label 5 seconds away and one a microsecond off the held frame. Accept only the observed signature, and fall back otherwise.
 - **A frame without a timestamp bypassed the held frame**, giving A X D E instead of the decoder's A D X E. Every result now goes through one hand-over function, which the tests drive as well.
 
+## Follow-up: why ExoPlayer stays clean
+
+A Kodi maintainer asked whether Kodi sets up or drives the decoder wrongly, since ExoPlayer (Media3) plays the same file on the same decoder without the fault. Both players got lab builds that record every call at the MediaCodec boundary, and traits were swapped between them one at a time:
+
+- **Kodi's traits into Media3:** its codec configuration, exact input bytes, timestamp range, shallow feeding and up to five held outputs, singly and all together. Media3 stayed timestamp-clean every time.
+- **Media3's traits into Kodi:** max-width/height, operating rate, timestamp range. No reliable effect.
+- **Polling without waiting:** Kodi waits up to 10 ms for each decoder output; Media3 doesn't. Removing the wait cut recorded anomaly events from 22 to 11 in a randomized 16-run comparison (one-sided p = 0.04), but 6 of 8 changed runs still showed the fault.
+- **Replaying Kodi's call timing** in a standalone app failed its own timing tolerance, so it counts as no evidence.
+
+So the setup differences we tested don't explain the fault, and timing inside the decoder stays the leading but unproven guess. The reorder workaround remains the recommendation; the polling change is published in the companion as an experiment. Details and limits: [FINDINGS.md](https://github.com/blueworkslabs/kodi-mtk-hevc-workaround/blob/main/docs/FINDINGS.md).
+
 ## Lessons
 
 - Monotonic timestamps and a full cache do not prove correct frame order. Only the screen does: film it and match frames to a reference decode.
@@ -72,6 +83,8 @@ The first candidate passed its own 42 tests and was still wrong in three ways. E
 - A plausible lead that changes the symptom is not the cause until removing it removes the symptom.
 - Write the workaround around the evidence you have: one held frame, narrow bounds, and fall back to unchanged behaviour on anything else.
 - Fixtures from real logs make strong regression tests. Strip them to decoder events and shift timestamps before sharing. The expected order should come from the filmed frames, not from the code under test.
+- A clean comparison player is a strong lever: move one trait at a time in both directions before blaming setup.
+- Put a limit on test tooling up front. The replay harness took five review rounds and still couldn't hold its schedule; stopping it was the right call.
 - Have someone else review the integration, not just the logic. All of the bugs above were in the code around a correct-looking core, or in what "unknown" was allowed to mean.
 
 ## Claim boundaries
@@ -84,4 +97,4 @@ The first candidate passed its own 42 tests and was still wrong in three ways. E
   - other frame rates, devices or Dolby Vision;
   - the firmware-level cause.
 - **Second device:** a second stick of the same model got the same build, with library, start-up and shut-down checks only. There is no playback verdict on it yet.
-- **Upstream:** whether Kodi would take such a workaround upstream was not asked. One rejected workaround elsewhere is not a policy.
+- **Upstream:** the findings and the companion were shared on the Kodi issue, with no request to merge. One rejected workaround elsewhere is not a policy.
